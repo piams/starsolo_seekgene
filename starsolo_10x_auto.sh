@@ -4,9 +4,6 @@
 ## newest version of the script uses STAR v2.7.10a with EM multimapper processing 
 ## in STARsolo which on by default; the extra matrix can be found in /raw subdir 
 
-SIF="/nfs/cellgeni/singularity/images/reprocess_10x.sif"
-CMD="singularity run --bind /nfs,/lustre $SIF"
-
 FQDIR=$1
 TAG=$2
 
@@ -95,8 +92,8 @@ done
 wait
 
 ## same random seed makes sure you select same reads from R1 and R2
-cat *.R1_head | $CMD seqtk sample -s100 - 200000 > test.R1.fastq &
-cat *.R2_head | $CMD seqtk sample -s100 - 200000 > test.R2.fastq &
+cat *.R1_head | seqtk sample -s100 - 200000 > test.R1.fastq &
+cat *.R2_head | seqtk sample -s100 - 200000 > test.R2.fastq &
 wait 
 rm *.R1_head *.R2_head
 
@@ -187,14 +184,14 @@ fi
 
 STRAND=Forward
 
-$CMD STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn test.R2.fastq test.R1.fastq --runDirPerm All_RWX --outSAMtype None \
+STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn test.R2.fastq test.R1.fastq --runDirPerm All_RWX --outSAMtype None \
      --soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) \
      --soloUMIlen $UMILEN --soloStrand Forward \
      --soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
      --soloCellFilter EmptyDrops_CR --clipAdapterType CellRanger4 --outFilterScoreMin 30 \
      --soloFeatures Gene GeneFull --soloOutFileNames test_forward/ features.tsv barcodes.tsv matrix.mtx &> /dev/null 
 
-$CMD STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn test.R2.fastq test.R1.fastq --runDirPerm All_RWX --outSAMtype None \
+STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn test.R2.fastq test.R1.fastq --runDirPerm All_RWX --outSAMtype None \
      --soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) \
      --soloUMIlen $UMILEN --soloStrand Reverse \
      --soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
@@ -239,13 +236,13 @@ echo "--------------------------------------------------------------------------
 if [[ $PAIRED == "True" ]]
 then
   ## note the R1/R2 order of input fastq reads and --soloStrand Forward for 5' paired-end experiment
-  $CMD STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn $R1 $R2 --runDirPerm All_RWX $GZIP $BAM --soloBarcodeMate 1 --clip5pNbases 39 0 \
+  STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn $R1 $R2 --runDirPerm All_RWX $GZIP $BAM --soloBarcodeMate 1 --clip5pNbases 39 0 \
      --soloType CB_UMI_Simple --soloCBwhitelist $BC --soloCBstart 1 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) --soloUMIlen $UMILEN --soloStrand Forward \
      --soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
      --soloCellFilter EmptyDrops_CR --outFilterScoreMin 30 \
      --soloFeatures Gene GeneFull Velocyto --soloOutFileNames output/ features.tsv barcodes.tsv matrix.mtx --soloMultiMappers EM --outReadsUnmapped Fastx
 else 
-  $CMD STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn $R2 $R1 --runDirPerm All_RWX $GZIP $BAM \
+  STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn $R2 $R1 --runDirPerm All_RWX $GZIP $BAM \
      --soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) --soloUMIlen $UMILEN --soloStrand $STRAND \
      --soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
      --soloCellFilter EmptyDrops_CR --clipAdapterType CellRanger4 --outFilterScoreMin 30 \
@@ -255,12 +252,12 @@ fi
 ## index the BAM file
 if [[ -s Aligned.sortedByCoord.out.bam ]]
 then
-  $CMD samtools index -@16 Aligned.sortedByCoord.out.bam
+  samtools index -@16 Aligned.sortedByCoord.out.bam
 fi
 
 ## max-CR bzip all unmapped reads with multicore pbzip2 
-$CMD pbzip2 -9 Unmapped.out.mate1 &
-$CMD pbzip2 -9 Unmapped.out.mate2 &
+pbzip2 -9 Unmapped.out.mate1 &
+pbzip2 -9 Unmapped.out.mate2 &
 wait
 
 ## remove test files 
