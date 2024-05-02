@@ -1,4 +1,4 @@
-#!/bin/bash -e 
+#!/usr/bin/bash
 
 ## v3.2 of STARsolo wrappers is set up to guess the chemistry automatically
 ## newest version of the script uses STAR v2.7.10a with EM multimapper processing 
@@ -9,15 +9,19 @@ TAG=$2
 
 if [[ $FQDIR == "" || $TAG == "" ]]
 then
-  >&2 echo "Usage: ./starsolo_10x_auto.sh <fastq_dir> <sample_id>"
+  >&2 echo "Usage: ./starsolo_seekgene.sh <fastq_dir> <sample_id>"
   >&2 echo "(make sure you set the correct REF, WL, and BAM variables below)"
   exit 1
 fi
 
+
+TMP='/mnt/data/piam/tmp'
+export TMPDIR=$TMP
+
 FQDIR=`readlink -f $FQDIR`
-CPUS=16                                                                ## typically bsub this into normal queue with 16 cores and 64 Gb RAM.   
-REF=/nfs/cellgeni/STAR/human/2020A/index                               ## choose the appropriate reference 
-WL=/nfs/cellgeni/STAR/whitelists                                       ## directory with all barcode whitelists
+CPUS=5	                                                            									## typically bsub this into normal queue with 16 cores and 64 Gb RAM.   
+REF=/mnt/ssd/pavel/analysis/202403_STARsolo_HdC_scRNAseq_SeekGene/reference/GRCh38/star                 ## choose the appropriate reference 
+WL=/mnt/ssd/pavel/analysis/202403_STARsolo_HdC_scRNAseq_SeekGene/barcode                                ## directory with all barcode whitelists
 
 ## choose one of the two otions, depending on whether you need a BAM file 
 #BAM="--outSAMtype BAM SortedByCoordinate --outBAMsortingBinsN 500 --limitBAMsortRAM 60000000000 --outMultimapperOrder Random --runRNGseed 1 --outSAMattributes NH HI AS nM CB UB CR CY UR UY GX GN"
@@ -25,7 +29,8 @@ BAM="--outSAMtype None"
 
 ###################################################################### DONT CHANGE OPTIONS BELOW THIS LINE ##############################################################################################
 
-mkdir $TAG && cd $TAG
+mkdir $TAG
+cd $TAG
 
 ## three popular cases: <sample>_1.fastq/<sample>_2.fastq, <sample>.R1.fastq/<sample>.R2.fastq, and <sample>_L001_R1_S001.fastq/<sample>_L001_R2_S001.fastq
 ## the command below will generate a comma-separated list for each read
@@ -46,16 +51,12 @@ then
 else 
   >&2 echo "ERROR: No appropriate fastq files were found! Please check file formatting, and check if you have set the right FQDIR."
   exit 1
-fi 
+fi
 
 ## define some key variables, in order to evaluate reads for being 1) gzipped/bzipped/un-archived; 
 ## 2) having barcodes from the whitelist, and which; 3) having consistent length; 4) being single- or paired-end. 
 GZIP=""
 BC=""
-NBC1=""
-NBC2=""
-NBC3=""
-NBCA=""
 R1LEN=""
 R2LEN=""
 R1DIS=""
@@ -71,6 +72,7 @@ then
   GZIP="--readFilesCommand bzcat"
   ZCMD="bzcat"
 fi
+
 
 ## we need a small and random selection of reads. the solution below is a result of much trial and error.
 ## in the end, we select 200k reads that represent all of the files present in the FASTQ dir for this sample.
@@ -97,32 +99,14 @@ cat *.R2_head | seqtk sample -s100 - 200000 > test.R2.fastq &
 wait 
 rm *.R1_head *.R2_head
 
-NBC1=`cat test.R1.fastq | awk 'NR%4==2' | cut -c-14 | grep -F -f $WL/737K-april-2014_rc.txt | wc -l`
-NBC2=`cat test.R1.fastq | awk 'NR%4==2' | cut -c-16 | grep -F -f $WL/737K-august-2016.txt | wc -l`
-NBC3=`cat test.R1.fastq | awk 'NR%4==2' | cut -c-16 | grep -F -f $WL/3M-february-2018.txt | wc -l`
-NBCA=`cat test.R1.fastq | awk 'NR%4==2' | cut -c-16 | grep -F -f $WL/737K-arc-v1.txt | wc -l`
+NBC1=`cat test.R1.fastq | awk 'NR%4==2' | cut -c-17 | grep -F -f $WL/P3CB.barcode.txt | wc -l`
+
+BC=$WL/P3CB.barcode.txt
 R1LEN=`cat test.R1.fastq | awk 'NR%4==2' | awk '{sum+=length($0)} END {printf "%d\n",sum/NR+0.5}'`
 R2LEN=`cat test.R2.fastq | awk 'NR%4==2' | awk '{sum+=length($0)} END {printf "%d\n",sum/NR+0.5}'`
 R1DIS=`cat test.R1.fastq | awk 'NR%4==2' | awk '{print length($0)}' | sort | uniq -c | wc -l`
 
-## elucidate the right barcode whitelist to use. Grepping out N saves us some trouble. Note the special list for multiome experiments (737K-arc-v1.txt):
-## 50k (out of 200,000) is a modified empirical number - matching only first 14-16 nt makes this more specific
-if (( $NBC3 > 50000 )) 
-then 
-  BC=$WL/3M-february-2018.txt
-elif (( $NBC2 > 50000 ))
-then
-  BC=$WL/737K-august-2016.txt
-elif (( $NBCA > 50000 ))
-then
-  BC=$WL/737K-arc-v1.txt
-elif (( $NBC1 > 50000 )) 
-then
-  BC=$WL/737K-april-2014_rc.txt
-else 
-  >&2 echo "ERROR: No whitelist has matched a random selection of 200,000 barcodes! Match counts: $NBC1 (v1), $NBC2 (v2), $NBC3 (v3), $NBCA (multiome)."
-  exit 1
-fi 
+
 
 ## check read lengths, fail if something funky is going on: 
 PAIRED=False
@@ -132,9 +116,9 @@ if (( $R1DIS > 1 && $R1LEN <= 30 ))
 then 
   >&2 echo "ERROR: Read 1 (barcode) has varying length; possibly someone thought it's a good idea to quality-trim it. Please check the fastq files."
   exit 1
-elif (( $R1LEN < 24 )) 
+elif (( $R1LEN < 29 )) 
 then
-  >&2 echo "ERROR: Read 1 (barcode) is less than 24 bp in length. Please check the fastq files."
+  >&2 echo "ERROR: Read 1 (barcode) is less than 29 bp in length. Please check the fastq files."
   exit 1
 elif (( $R2LEN < 40 )) 
 then
@@ -142,27 +126,23 @@ then
   exit 1
 fi
 
-## assign the necessary variables for barcode/UMI length/paired-end processing. 
-## scripts was changed to not rely on read length for the UMIs because of the epic Hassan case
-# (v2 16bp barcodes + 10bp UMIs were sequenced to 28bp, effectively removing the effects of the UMIs)
-if (( $R1LEN > 50 )) 
+
+
+### assign the necessary variables for barcode/UMI length/paired-end processing. 
+### scripts was changed to not rely on read length for the UMIs because of the epic Hassan case
+## (v2 16bp barcodes + 10bp UMIs were sequenced to 28bp, effectively removing the effects of the UMIs)
+if (( $R1LEN > 51 )) 
 then
   PAIRED=True
 fi
 
-if [[ $BC == "$WL/3M-february-2018.txt" || $BC == "$WL/737K-arc-v1.txt" ]] 
-then 
-  CBLEN=16
-  UMILEN=12
-elif [[ $BC == "$WL/737K-august-2016.txt" ]] 
-then
-  CBLEN=16
-  UMILEN=10
-elif [[ $BC == "$WL/737K-april-2014_rc.txt" ]] 
-then
-  CBLEN=14
-  UMILEN=10
-fi
+
+#SeekGene CB and UMI structure
+#structure: 'B17U12X7' X - random primer
+CBLEN=17
+UMILEN=12
+
+
 
 ## yet another failsafe! Some geniuses managed to sequence v3 10x with a 26bp R1, which also causes STARsolo grief. This fixes it.
 if (( $CBLEN + $UMILEN > $R1LEN ))
@@ -177,10 +157,10 @@ then
   >&2 echo "WARNING: Read 1 length ($R1LEN) is more than the sum of appropriate barcode and UMI ($BCUMI)."
 fi
 
-## it's hard to come up with a universal rule to correctly infer strand-specificity of the experiment. 
-## this is the best I could come up with: 1) check if fraction of test reads (200k random ones) maps to GeneFull forward strand 
-## with higher than 50% probability; 2) if not, run the same quantification with "--soloStand Reverse" and calculate the same stat; 
-## 3) output a warning, and choose the strand with higher %; 4) if both percentages are below 10, 
+### it's hard to come up with a universal rule to correctly infer strand-specificity of the experiment. 
+### this is the best I could come up with: 1) check if fraction of test reads (200k random ones) maps to GeneFull forward strand 
+### with higher than 50% probability; 2) if not, run the same quantification with "--soloStand Reverse" and calculate the same stat; 
+### 3) output a warning, and choose the strand with higher %; 4) if both percentages are below 10, 
 
 STRAND=Forward
 
@@ -211,10 +191,38 @@ then
   >&2 echo "WARNING: Low percentage of reads mapping to GeneFull: forward = $PCTFWD , reverse = $PCTREV"
 fi 
 
-## finally, if paired-end experiment turned out to be 3' (yes, they do exist!), process it as single-end: 
-if [[ $STRAND == "Forward" && $PAIRED == "True" ]]
+#SeekGene full length assay uses forward strand!
+#### finally, if paired-end experiment turned out to be 3' (yes, they do exist!), process it as single-end: 
+##if [[ $STRAND == "Forward" && $PAIRED == "True" ]]
+##then
+##  PAIRED=False
+##fi
+
+if [[ $PAIRED == "True" ]]
 then
-  PAIRED=False
+  ## note the R1/R2 order of input fastq reads and --soloStrand Forward for 5' paired-end experiment
+  ## Note 2: same R1/R2 order of input fastq reads but --soloStrand Reverse for full-length SeekGene
+  
+	#Test best performing 5p clipping length (29 or 36(remove random primer))- Better alignment rate if retain random primer (i.e. 5p clip 29 bp)
+	STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn test.R1.fastq test.R2.fastq --runDirPerm All_RWX --outSAMtype None \
+		--soloBarcodeMate 1 --clip5pNbases 36 0 \
+		--soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBstart 1 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) \
+		--soloUMIlen $UMILEN --soloStrand Reverse \
+		--soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
+		--soloCellFilter EmptyDrops_CR --outFilterScoreMin 30 \
+		--soloFeatures Gene GeneFull --soloOutFileNames test_36clip5p/ features.tsv barcodes.tsv matrix.mtx &> /dev/null 
+	
+	
+	STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn test.R1.fastq test.R2.fastq --runDirPerm All_RWX --outSAMtype None \
+		--soloBarcodeMate 1 --clip5pNbases $((UMILEN+CBLEN)) 0 \
+		--soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBstart 1 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) \
+		--soloUMIlen $UMILEN --soloStrand Reverse \
+		--soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
+		--soloCellFilter EmptyDrops_CR --outFilterScoreMin 30 \
+		--soloFeatures Gene GeneFull --soloOutFileNames test_29clip5p/ features.tsv barcodes.tsv matrix.mtx &> /dev/null
+		
+		PCT36clip=`grep "Reads Mapped to GeneFull: Unique GeneFull" test_36clip5p/GeneFull/Summary.csv | awk -F "," '{printf "%d\n",$2*100+0.5}'`
+		PCT29clip=`grep "Reads Mapped to GeneFull: Unique GeneFull" test_29clip5p/GeneFull/Summary.csv | awk -F "," '{printf "%d\n",$2*100+0.5}'`
 fi
 
 ## write a file in the sample dir too, these metrics are not crucial but useful 
@@ -223,7 +231,7 @@ echo "==========================================================================
 echo "Sample: $TAG" | tee strand.txt
 echo "Paired-end mode: $PAIRED" | tee -a strand.txt
 echo "Strand (Forward = 3', Reverse = 5'): $STRAND, %reads mapped to GeneFull: forward = $PCTFWD , reverse = $PCTREV" | tee -a strand.txt
-echo "CB whitelist: $BC, matches out of 200,000: $NBC3 (v3), $NBC2 (v2), $NBC1 (v1), $NBCA (multiome) " | tee -a strand.txt
+echo "CB whitelist: $BC, matches out of 200,000: $NBC1 (SeekGene CBs) " | tee -a strand.txt
 echo "CB length: $CBLEN" | tee -a strand.txt
 echo "UMI length: $UMILEN" | tee -a strand.txt
 echo "GZIP: $GZIP" | tee -a strand.txt
@@ -233,14 +241,29 @@ echo "--------------------------------------------------------------------------
 echo "Read 2 files: $R2" | tee -a strand.txt
 echo "-----------------------------------------------------------------------------" | tee -a strand.txt
 
+
 if [[ $PAIRED == "True" ]]
 then
-  ## note the R1/R2 order of input fastq reads and --soloStrand Forward for 5' paired-end experiment
-  STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn $R1 $R2 --runDirPerm All_RWX $GZIP $BAM --soloBarcodeMate 1 --clip5pNbases 39 0 \
-     --soloType CB_UMI_Simple --soloCBwhitelist $BC --soloCBstart 1 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) --soloUMIlen $UMILEN --soloStrand Forward \
-     --soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
-     --soloCellFilter EmptyDrops_CR --outFilterScoreMin 30 \
-     --soloFeatures Gene GeneFull Velocyto --soloOutFileNames output/ features.tsv barcodes.tsv matrix.mtx --soloMultiMappers EM --outReadsUnmapped Fastx
+	echo "--clip5pNbases 36 0 %reads mapped to GeneFull: $PCT36clip" | tee -a strand.txt
+	echo "--clip5pNbases 29 0 %reads mapped to GeneFull: $PCT29clip" | tee -a strand.txt
+fi
+
+
+#Clip 5p retaining random primer (7 bp after CB+UMI)
+
+####PAIRED=False
+
+if [[ $PAIRED == "True" ]]
+then
+  ## note the R1/R2 order of input fastq reads and --soloStrand Forward for 5' paired-end experiment (10x Genomics 5p)
+  ## Note 2: same R1/R2 order of input fastq reads but --soloStrand Reverse for full-length (SeekGene full-length)
+  
+  STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn $R1 $R2 --runDirPerm All_RWX $GZIP $BAM \
+		--soloBarcodeMate 1 --clip5pNbases 29 0 --soloStrand Reverse --readMapNumber 600000 \
+		--soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBstart 1 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) --soloUMIlen $UMILEN \
+		--soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
+		--soloCellFilter EmptyDrops_CR --outFilterScoreMin 30 \
+		--soloFeatures Gene GeneFull Velocyto --soloOutFileNames output/ features.tsv barcodes.tsv matrix.mtx --soloMultiMappers EM --outReadsUnmapped Fastx
 else 
   STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn $R2 $R1 --runDirPerm All_RWX $GZIP $BAM \
      --soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) --soloUMIlen $UMILEN --soloStrand $STRAND \
@@ -249,6 +272,17 @@ else
      --soloFeatures Gene GeneFull Velocyto --soloOutFileNames output/ features.tsv barcodes.tsv matrix.mtx --soloMultiMappers EM --outReadsUnmapped Fastx
 fi
 
+#--soloStrand Forward --readMapNumber 500000 \
+#--soloBarcodeMate 1 --clip5pNbases 29 0 --soloStrand Reverse --readMapNumber 500000 \
+###STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn test.R1.fastq test.R2.fastq --runDirPerm All_RWX --outSAMtype None \
+###	--soloBarcodeMate 1 --clip5pNbases $((UMILEN+CBLEN)) 0 \
+###	--soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBstart 1 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) \
+###	--soloUMIlen $UMILEN --soloStrand Reverse \
+###	--soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
+###	--soloCellFilter EmptyDrops_CR --outFilterScoreMin 30 \
+###	--soloFeatures Gene GeneFull --soloOutFileNames test_29clip5p/ features.tsv barcodes.tsv matrix.mtx &> /dev/null
+
+
 ## index the BAM file
 if [[ -s Aligned.sortedByCoord.out.bam ]]
 then
@@ -256,19 +290,22 @@ then
 fi
 
 ## max-CR bzip all unmapped reads with multicore pbzip2 
-pbzip2 -9 Unmapped.out.mate1 &
-pbzip2 -9 Unmapped.out.mate2 &
-wait
+# pbzip2 -9 Unmapped.out.mate1 &
+# pbzip2 -9 Unmapped.out.mate2 &
+#wait
+#
+### remove test files 
+#rm -rf test.R?.fastq test_* test_*
+#
+#output_dir=`readlink -f ./output`
+#
+#for i in Gene/raw Gene/filtered GeneFull/raw GeneFull/filtered Velocyto/raw Velocyto/filtered
+#do 
+#  gzip `echo $output_dir/$i`*.mtx
+#  gzip `echo $output_dir/$i`*.tsv
+#done
+#
+#wait
 
-## remove test files 
-rm -rf test.R?.fastq test_forward test_reverse
 
-cd output
-for i in Gene/raw Gene/filtered GeneFull/raw GeneFull/filtered Velocyto/raw Velocyto/filtered
-do 
-  cd $i; for j in *; do gzip $j & done
-  cd ../../
-done
-
-wait
 echo "ALL DONE!"
