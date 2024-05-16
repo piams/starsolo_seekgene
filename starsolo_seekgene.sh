@@ -301,8 +301,8 @@ output_dir=`readlink -f ./output`
 
 for i in Gene/raw Gene/filtered GeneFull/raw GeneFull/filtered
 do 
-  gzip `echo $output_dir/$i`*.mtx
-  gzip `echo $output_dir/$i`*.tsv
+  gzip `echo $output_dir/$i/`*.mtx
+  gzip `echo $output_dir/$i/`*.tsv
 done
 
 wait
