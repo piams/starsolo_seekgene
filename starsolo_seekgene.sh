@@ -24,8 +24,8 @@ REF=/mnt/ssd/pavel/analysis/202403_STARsolo_HdC_scRNAseq_SeekGene/reference/GRCh
 WL=/mnt/ssd/pavel/analysis/202403_STARsolo_HdC_scRNAseq_SeekGene/barcode                                ## directory with all barcode whitelists
 
 ## choose one of the two otions, depending on whether you need a BAM file 
-#BAM="--outSAMtype BAM SortedByCoordinate --outBAMsortingBinsN 500 --limitBAMsortRAM 60000000000 --outMultimapperOrder Random --runRNGseed 1 --outSAMattributes NH HI AS nM CB UB CR CY UR UY GX GN"
-BAM="--outSAMtype None"
+BAM="--outSAMtype BAM SortedByCoordinate --outBAMsortingBinsN 500 --limitBAMsortRAM 60000000000 --outMultimapperOrder Random --runRNGseed 1 --outSAMattributes NH HI AS nM CB UB CR CY UR UY GX GN"
+#BAM="--outSAMtype None"
 
 ###################################################################### DONT CHANGE OPTIONS BELOW THIS LINE ##############################################################################################
 
@@ -259,11 +259,11 @@ then
   ## Note 2: same R1/R2 order of input fastq reads but --soloStrand Reverse for full-length (SeekGene full-length)
   
   STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn $R1 $R2 --runDirPerm All_RWX $GZIP $BAM \
-		--soloBarcodeMate 1 --clip5pNbases 29 0 --soloStrand Reverse --readMapNumber 600000 \
+		--soloBarcodeMate 1 --clip5pNbases 29 0 --soloStrand Reverse --readMapNumber 2000000 \
 		--soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBstart 1 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) --soloUMIlen $UMILEN \
 		--soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
 		--soloCellFilter EmptyDrops_CR --outFilterScoreMin 30 \
-		--soloFeatures Gene GeneFull Velocyto --soloOutFileNames output/ features.tsv barcodes.tsv matrix.mtx --soloMultiMappers EM --outReadsUnmapped Fastx
+		--soloFeatures Gene GeneFull --soloOutFileNames output/ features.tsv barcodes.tsv matrix.mtx --soloMultiMappers EM --outReadsUnmapped Fastx
 else 
   STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn $R2 $R1 --runDirPerm All_RWX $GZIP $BAM \
      --soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) --soloUMIlen $UMILEN --soloStrand $STRAND \
@@ -289,23 +289,23 @@ then
   samtools index -@16 Aligned.sortedByCoord.out.bam
 fi
 
-## max-CR bzip all unmapped reads with multicore pbzip2 
-# pbzip2 -9 Unmapped.out.mate1 &
-# pbzip2 -9 Unmapped.out.mate2 &
-#wait
-#
-### remove test files 
-#rm -rf test.R?.fastq test_* test_*
-#
-#output_dir=`readlink -f ./output`
-#
-#for i in Gene/raw Gene/filtered GeneFull/raw GeneFull/filtered Velocyto/raw Velocyto/filtered
-#do 
-#  gzip `echo $output_dir/$i`*.mtx
-#  gzip `echo $output_dir/$i`*.tsv
-#done
-#
-#wait
+# max-CR bzip all unmapped reads with multicore pbzip2 
+ pbzip2 -9 Unmapped.out.mate1 &
+ pbzip2 -9 Unmapped.out.mate2 &
+wait
+
+## remove test files 
+rm -rf test.R?.fastq test_* test_*
+
+output_dir=`readlink -f ./output`
+
+for i in Gene/raw Gene/filtered GeneFull/raw GeneFull/filtered
+do 
+  gzip `echo $output_dir/$i`*.mtx
+  gzip `echo $output_dir/$i`*.tsv
+done
+
+wait
 
 
 echo "ALL DONE!"
