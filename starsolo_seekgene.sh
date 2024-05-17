@@ -2,7 +2,13 @@
 
 ## v3.2 of STARsolo wrappers is set up to guess the chemistry automatically
 ## newest version of the script uses STAR v2.7.10a with EM multimapper processing 
-## in STARsolo which on by default; the extra matrix can be found in /raw subdir 
+## in STARsolo which on by default; the extra matrix can be found in /raw subdir
+
+#Increase ulimit -n from 1024 to 8096 (Due to run into following error:\
+#BAMoutput.cpp:27:BAMoutput: exiting because \
+#of *OUTPUT FILE* error: could not create output file ./_STARtmp//BAMsort/2/3 \
+#SOLUTION: check that the path exists and you have write permission for this file. \
+#Also check ulimit -n and increase it to allow more open files)
 
 FQDIR=$1
 TAG=$2
@@ -259,7 +265,7 @@ then
   ## Note 2: same R1/R2 order of input fastq reads but --soloStrand Reverse for full-length (SeekGene full-length)
   
   STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn $R1 $R2 --runDirPerm All_RWX $GZIP $BAM \
-		--soloBarcodeMate 1 --clip5pNbases 29 0 --soloStrand Reverse --readMapNumber 2000000 \
+		--soloBarcodeMate 1 --clip5pNbases 29 0 --soloStrand Reverse \
 		--soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBstart 1 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) --soloUMIlen $UMILEN \
 		--soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
 		--soloCellFilter EmptyDrops_CR --outFilterScoreMin 30 \
@@ -271,16 +277,6 @@ else
      --soloCellFilter EmptyDrops_CR --clipAdapterType CellRanger4 --outFilterScoreMin 30 \
      --soloFeatures Gene GeneFull Velocyto --soloOutFileNames output/ features.tsv barcodes.tsv matrix.mtx --soloMultiMappers EM --outReadsUnmapped Fastx
 fi
-
-#--soloStrand Forward --readMapNumber 500000 \
-#--soloBarcodeMate 1 --clip5pNbases 29 0 --soloStrand Reverse --readMapNumber 500000 \
-###STAR --runThreadN $CPUS --genomeDir $REF --readFilesIn test.R1.fastq test.R2.fastq --runDirPerm All_RWX --outSAMtype None \
-###	--soloBarcodeMate 1 --clip5pNbases $((UMILEN+CBLEN)) 0 \
-###	--soloType CB_UMI_Simple --soloCBwhitelist $BC --soloBarcodeReadLength 0 --soloCBstart 1 --soloCBlen $CBLEN --soloUMIstart $((CBLEN+1)) \
-###	--soloUMIlen $UMILEN --soloStrand Reverse \
-###	--soloUMIdedup 1MM_CR --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR \
-###	--soloCellFilter EmptyDrops_CR --outFilterScoreMin 30 \
-###	--soloFeatures Gene GeneFull --soloOutFileNames test_29clip5p/ features.tsv barcodes.tsv matrix.mtx &> /dev/null
 
 
 ## index the BAM file
@@ -297,13 +293,9 @@ wait
 ## remove test files 
 rm -rf test.R?.fastq test_* test_*
 
-output_dir=`readlink -f ./output`
-
-for i in Gene/raw Gene/filtered GeneFull/raw GeneFull/filtered
-do 
-  gzip `echo $output_dir/$i/`*.mtx
-  gzip `echo $output_dir/$i/`*.tsv
-done
+gzip `find ./output/ | grep features.tsv`
+gzip `find ./output/ | grep barcodes.tsv`
+gzip `find ./output/ | grep .mtx`
 
 wait
 
